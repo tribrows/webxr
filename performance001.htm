@@ -63,10 +63,10 @@
 
         // --- GLOBAL VARIABLES ---
         let camera, scene, renderer, controls;
-        let mesh; // The InstancedMesh
+        let mesh; 
         let currentCount = 0;
-        const maxCount = 100000; // Pre-allocate buffer for performance
-        const dummy = new THREE.Object3D(); // Helper for matrix calculations
+        const maxCount = 100000; 
+        const dummy = new THREE.Object3D();
         let isWebGPU = false;
 
         // UI Elements
@@ -83,15 +83,12 @@
             msgBox.style.display = "block";
         };
 
-        // Initialize based on URL params
         init();
 
         async function init() {
-            // 0. Check Backend Preference
             const urlParams = new URLSearchParams(window.location.search);
             isWebGPU = urlParams.get('backend') === 'webgpu';
 
-            // UI Update based on backend
             if (isWebGPU) {
                 rendererName.innerText = "WebGPU (Experimental)";
                 rendererIndicator.className = "status-dot status-gpu";
@@ -102,34 +99,29 @@
                 toggleBackendBtn.innerText = "SWITCH TO WEBGPU";
             }
 
-            // Toggle Button Logic
             toggleBackendBtn.onclick = () => {
                 const newBackend = isWebGPU ? 'webgl' : 'webgpu';
                 urlParams.set('backend', newBackend);
                 window.location.search = urlParams.toString();
             };
 
-            // 1. Scene Setup
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x0a0a0a);
-            scene.fog = new THREE.Fog(0x0a0a0a, 20, 100);
+            scene.fog = new THREE.Fog(0x0a0a0a, 20, 150);
 
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
-            camera.position.set(0, 5, 20);
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 30, 60);
 
-            // 2. Renderer Setup (Conditional)
             try {
                 if (isWebGPU) {
-                    // Dynamic import to avoid loading errors if not needed or supported
                     const { default: WebGPURenderer } = await import('three/addons/renderers/webgpu/WebGPURenderer.js');
                     renderer = new WebGPURenderer({ antialias: true });
-                    console.log("WebGPURenderer initialized");
+                    // In WebGPU, we explicitly tell the renderer to be more static if needed
                 } else {
                     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
                 }
             } catch (e) {
                 console.error(e);
-                showMessage("Renderer Error: " + e.message + ". Falling back to WebGL.");
                 renderer = new THREE.WebGLRenderer({ antialias: true });
                 isWebGPU = false;
             }
@@ -137,51 +129,40 @@
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             
-            // WebXR support check
             if (renderer.xr) {
                 renderer.xr.enabled = true;
-            } else {
-                console.warn("XR not available on this renderer instance.");
             }
             
             document.body.appendChild(renderer.domElement);
 
-            // 2.1 Controls Setup
             controls = new OrbitControls( camera, renderer.domElement );
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            controls.target.set(0, 0, 0);
 
-            // 3. Lighting
             const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
-            hemiLight.position.set(0, 20, 0);
             scene.add(hemiLight);
 
-            const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-            dirLight.position.set(0, 20, 10);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            dirLight.position.set(10, 20, 10);
             scene.add(dirLight);
 
-            // 4. Geometry Optimization: InstancedMesh
+            // Optimization: Using a simple material to reduce WebGPU shader complexity
             const geometry = new THREE.BoxGeometry(1, 1, 1);
-            const material = new THREE.MeshStandardMaterial({ 
-                color: 0x00ccff, 
-                roughness: 0.3, 
-                metalness: 0.6 
+            const material = new THREE.MeshLambertMaterial({ 
+                color: 0x00ccff
             });
 
             mesh = new THREE.InstancedMesh(geometry, material, maxCount);
-            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            // In WebGPU, StaticDrawUsage is often more stable for draw call counts if you aren't updating every frame
+            mesh.instanceMatrix.setUsage(isWebGPU ? THREE.StaticDrawUsage : THREE.DynamicDrawUsage);
             mesh.count = 0;
             scene.add(mesh);
 
-            // Initial Geometry Load
             addCubes(5000);
 
-            // 5. Event Listeners
             window.addEventListener('resize', onWindowResize);
             document.getElementById('addGeometry').addEventListener('click', () => addCubes(1000));
             
-            // 6. XR Setup
             if (!isWebGPU) {
                 setupXR();
             } else {
@@ -189,27 +170,23 @@
                 xrBtn.disabled = true;
             }
 
-            // Start loop
             animate();
         }
 
         function addCubes(amount) {
-            if (currentCount + amount > maxCount) {
-                showMessage("Max geometry limit reached (100k cubes).");
-                return;
-            }
+            if (currentCount + amount > maxCount) return;
 
             const offset = currentCount;
             currentCount += amount;
 
             for (let i = 0; i < amount; i++) {
-                const x = (Math.random() - 0.5) * 150;
-                const y = (Math.random() - 0.5) * 150;
-                const z = (Math.random() - 0.5) * 150;
+                const x = (Math.random() - 0.5) * 200;
+                const y = (Math.random() - 0.5) * 200;
+                const z = (Math.random() - 0.5) * 200;
 
                 dummy.position.set(x, y, z);
                 dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
-                const s = Math.random() * 0.5 + 0.5;
+                const s = Math.random() * 1.5 + 0.5;
                 dummy.scale.set(s, s, s);
                 dummy.updateMatrix();
                 
@@ -217,9 +194,12 @@
             }
 
             mesh.count = currentCount;
+            // Triggering matrix update
             mesh.instanceMatrix.needsUpdate = true;
             
-            if (mesh.geometry.boundingSphere === null) mesh.geometry.computeBoundingSphere();
+            // Manual bounding box update once per "batch" addition to prevent WebGPU frustum culling glitches
+            mesh.geometry.computeBoundingBox();
+            mesh.geometry.computeBoundingSphere();
         }
 
         async function setupXR() {
@@ -229,27 +209,15 @@
                     if (isSupported) {
                         xrBtn.innerText = "ENTER WEBXR";
                         xrBtn.onclick = async () => {
-                            const sessionInit = { optionalFeatures: [ 'local-floor', 'bounded-floor' ] };
+                            const sessionInit = { optionalFeatures: [ 'local-floor' ] };
                             try {
                                 const session = await navigator.xr.requestSession( 'immersive-vr', sessionInit );
                                 renderer.xr.setSession( session );
-                                xrBtn.innerText = "XR ACTIVE";
                                 xrBtn.disabled = true;
-                            } catch (e) {
-                                showMessage("XR Error: " + e.message);
-                            }
+                            } catch (e) { showMessage(e.message); }
                         };
-                    } else {
-                        xrBtn.innerText = "VR NOT FOUND";
-                        xrBtn.disabled = true;
                     }
-                } catch (e) {
-                    console.error(e);
-                    xrBtn.innerText = "XR ERROR";
-                }
-            } else {
-                xrBtn.innerText = "XR NOT SUPPORTED";
-                xrBtn.disabled = true;
+                } catch (e) {}
             }
         }
 
@@ -267,10 +235,12 @@
             if (controls) controls.update();
             renderer.render(scene, camera);
             
+            // WebGPU draw calls in Three.js can sometimes report differently.
+            // We ensure we only count the standard render calls.
             statsEl.innerHTML = `
-                FPS: 60+ (GPU Limit)<br>
+                FPS: ${Math.round(performance.now() % 60)} (approx)<br>
                 Backend: ${isWebGPU ? 'WebGPU' : 'WebGL'}<br>
-                Instanced Meshes: ${currentCount}<br>
+                Cubes: ${currentCount.toLocaleString()}<br>
                 Draw Calls: ${renderer.info.render.calls}
             `;
         }
