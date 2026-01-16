@@ -3,132 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tilt Five - Fixed Imports</title>
+    <title>Tilt Five - CDN Fixed</title>
     
-    <!-- 1. ERROR HANDLER: Catches script errors and shows them on screen -->
-    <script>
-        window.onerror = function(msg, url, line, col, error) {
-            const div = document.createElement('div');
-            div.style.cssText = 'position:fixed; top:0; left:0; width:100%; background:rgba(200,0,0,0.9); color:white; padding:20px; z-index:9999; font-family:monospace;';
-            div.innerHTML = `<h3>Error Detected</h3><p>${msg}</p><p>Line: ${line}</p>`;
-            document.body.appendChild(div);
-            return false;
-        };
-        window.addEventListener('unhandledrejection', function(event) {
-            const div = document.createElement('div');
-            div.style.cssText = 'position:fixed; bottom:0; left:0; width:100%; background:rgba(200,100,0,0.9); color:white; padding:20px; z-index:9999; font-family:monospace;';
-            div.innerHTML = `<h3>Promise Rejection</h3><p>${event.reason}</p>`;
-            document.body.appendChild(div);
-        });
-    </script>
-
-    <!-- 2. ROBUST IMPORT MAP (Using unpkg for stability) -->
+    <!-- 1. IMPORT MAP: Maps 'three' and 'needle' to stable JSDelivr URLs -->
     <script type="importmap">
     {
         "imports": {
             "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
             "three/": "https://cdn.jsdelivr.net/npm/three@0.160.0/",
-            "@needle-tools/engine": "https://unpkg.com/@needle-tools/engine@3.37.0/dist/index.js"
+            "@needle-tools/engine": "https://cdn.jsdelivr.net/npm/@needle-tools/engine@3.37.0/dist/index.js"
         }
     }
     </script>
 
+    <!-- 2. STYLES -->
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; 
-            background: #222; color: white; font-family: sans-serif; overflow: hidden; 
+            background: #111; color: white; font-family: sans-serif; overflow: hidden; 
         }
-        /* Ensure the engine fills the screen */
         needle-engine { 
             display: block; width: 100vw; height: 100vh; 
         }
         #overlay { 
             position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: none; 
-            text-shadow: 0 1px 2px black;
+            background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px;
         }
-        #status { font-weight: bold; color: #ffff00; }
+        .error-box {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(50,0,0,0.9); z-index: 9999; padding: 50px;
+            display: none; box-sizing: border-box;
+        }
     </style>
 </head>
 <body>
 
-    <div id="overlay">
-        <h1>Tilt Five AR</h1>
-        <p>Status: <span id="status">Initializing...</span></p>
+    <!-- Error Display -->
+    <div id="error-box" class="error-box">
+        <h1>⚠️ Setup Error</h1>
+        <p id="error-msg"></p>
+        <p><strong>Note:</strong> You cannot run this by double-clicking the file. You must use a local server (e.g., VS Code Live Server, python -m http.server, or GitHub Pages).</p>
     </div>
 
-    <!-- 3. ENGINE COMPONENT -->
+    <div id="overlay">
+        <h2>Tilt Five AR</h2>
+        <p>Status: <span id="status" style="color:yellow">Loading Engine...</span></p>
+    </div>
+
+    <!-- 3. LOAD ENGINE -->
+    <!-- We load the engine module here. The import map handles the URL. -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@needle-tools/engine@3.37.0/dist/index.js"></script>
+
+    <!-- 4. ENGINE COMPONENT -->
     <needle-engine></needle-engine>
 
-    <!-- 4. MAIN LOGIC -->
+    <!-- 5. MAIN LOGIC -->
     <script type="module">
-        // Importing this registers the <needle-engine> component automatically
         import { onStart, WebXR, GameObject } from "@needle-tools/engine";
         import * as THREE from "three";
 
-        const statusEl = document.getElementById("status");
-        statusEl.innerText = "Modules Loaded. Starting Engine...";
+        // Check for file:// protocol error
+        if (window.location.protocol === 'file:') {
+            const errBox = document.getElementById('error-box');
+            document.getElementById('error-msg').innerText = "You are running this file via 'file://' protocol. Browsers block WebXR and modules in this mode.";
+            errBox.style.display = 'block';
+            throw new Error("Local file access blocked");
+        }
 
+        const statusEl = document.getElementById("status");
+        
         onStart((context) => {
             console.log("Needle Engine Started!");
-            statusEl.innerText = "Ready (Look at Board)";
+            statusEl.innerText = "Running (Ready for T5)";
             statusEl.style.color = "#00ff00";
 
             // --- TILT FIVE SETUP ---
-            // Add WebXR capability (Required for T5)
+            // This component handles the connection to the T5 Drivers
             const xrObject = GameObject.addNew(context.scene, "WebXR_Manager");
             GameObject.addComponent(xrObject, WebXR);
 
-            // --- DESKTOP CAMERA (Fallback) ---
+            // --- DESKTOP PREVIEW ---
             if (!context.mainCamera) {
-                const camObj = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-                camObj.position.set(0, 1.5, 2);
-                camObj.lookAt(0, 0, 0);
-                context.scene.add(camObj);
-                context.mainCamera = camObj;
+                const cam = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+                cam.position.set(0, 1, 1.5);
+                cam.lookAt(0, 0, 0);
+                context.scene.add(cam);
+                context.mainCamera = cam;
             }
 
             // --- SCENE CONTENT ---
             const root = new THREE.Group();
             context.scene.add(root);
 
-            // 1. Grid (Visual Reference)
-            const grid = new THREE.GridHelper(1, 10);
-            context.scene.add(grid);
+            // 1. Grid
+            context.scene.add(new THREE.GridHelper(2, 10));
 
-            // 2. Spinning Cube
-            const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-            const material = new THREE.MeshStandardMaterial({ color: 0x00aaff });
-            const cube = new THREE.Mesh(geometry, material);
-            cube.position.set(0, 0.1, 0);
-            root.add(cube);
+            // 2. Objects
+            const geometry = new THREE.TorusKnotGeometry(0.15, 0.05, 100, 16);
+            const material = new THREE.MeshStandardMaterial({ color: 0x00ff88, metalness: 0.5, roughness: 0.1 });
+            const torus = new THREE.Mesh(geometry, material);
+            torus.position.y = 0.2;
+            root.add(torus);
 
-            // 3. Particles
-            const pCount = 300;
-            const pGeo = new THREE.BufferGeometry();
-            const pPos = new Float32Array(pCount * 3);
-            for(let i=0; i<pCount*3; i++) pPos[i] = (Math.random() - 0.5) * 1.5;
-            pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
-            const pMat = new THREE.PointsMaterial({ color: 0xffaa00, size: 0.015 });
-            const particles = new THREE.Points(pGeo, pMat);
-            root.add(particles);
-
-            // 4. Lights
+            // 3. Light
             const light = new THREE.DirectionalLight(0xffffff, 2);
-            light.position.set(2, 4, 2);
+            light.position.set(1, 2, 1);
             context.scene.add(light);
-            context.scene.add(new THREE.AmbientLight(0x333333));
+            context.scene.add(new THREE.AmbientLight(0x404040));
 
-            // Animation Loop
+            // 4. Animation
             const animate = () => {
                 if(context.isDestroyed) return;
-                
-                const time = performance.now() * 0.001;
-                cube.rotation.x = time;
-                cube.rotation.y = time * 0.5;
-                
-                // Bobbing effect
-                cube.position.y = 0.2 + Math.sin(time * 2) * 0.05;
-                
+                torus.rotation.x += 0.01;
+                torus.rotation.y += 0.01;
                 requestAnimationFrame(animate);
             };
             animate();
