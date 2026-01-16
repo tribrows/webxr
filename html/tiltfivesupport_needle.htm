@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tilt Five - Debug Version</title>
+    <title>Tilt Five - Fixed Imports</title>
     
     <!-- 1. ERROR HANDLER: Catches script errors and shows them on screen -->
     <script>
@@ -14,7 +14,6 @@
             document.body.appendChild(div);
             return false;
         };
-        // Capture unhandled promise rejections (import failures)
         window.addEventListener('unhandledrejection', function(event) {
             const div = document.createElement('div');
             div.style.cssText = 'position:fixed; bottom:0; left:0; width:100%; background:rgba(200,100,0,0.9); color:white; padding:20px; z-index:9999; font-family:monospace;';
@@ -23,26 +22,25 @@
         });
     </script>
 
-    <!-- 2. ROBUST IMPORT MAP (Using esm.sh for auto-dependency resolution) -->
+    <!-- 2. ROBUST IMPORT MAP (Using unpkg for stability) -->
     <script type="importmap">
     {
         "imports": {
-            "three": "https://esm.sh/three@0.160.0",
-            "@needle-tools/engine": "https://esm.sh/@needle-tools/engine@3.37.0"
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/": "https://cdn.jsdelivr.net/npm/three@0.160.0/",
+            "@needle-tools/engine": "https://unpkg.com/@needle-tools/engine@3.37.0/dist/index.js"
         }
     }
     </script>
-
-    <!-- Load the Engine definition -->
-    <script type="module" src="https://esm.sh/@needle-tools/engine@3.37.0"></script>
 
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; 
             background: #222; color: white; font-family: sans-serif; overflow: hidden; 
         }
+        /* Ensure the engine fills the screen */
         needle-engine { 
-            display: block; width: 100%; height: 100%; 
+            display: block; width: 100vw; height: 100vh; 
         }
         #overlay { 
             position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: none; 
@@ -55,29 +53,28 @@
 
     <div id="overlay">
         <h1>Tilt Five AR</h1>
-        <p>Status: <span id="status">Loading Modules...</span></p>
-        <p style="font-size: 0.8em; opacity: 0.8">If stuck here, check console (F12)</p>
+        <p>Status: <span id="status">Initializing...</span></p>
     </div>
 
-    <!-- 3. ENGINE COMPONENT with explicit attributes -->
+    <!-- 3. ENGINE COMPONENT -->
     <needle-engine></needle-engine>
 
+    <!-- 4. MAIN LOGIC -->
     <script type="module">
-        // Import essential components
-        import { onStart, WebXR, GameObject, Context } from "@needle-tools/engine";
+        // Importing this registers the <needle-engine> component automatically
+        import { onStart, WebXR, GameObject } from "@needle-tools/engine";
         import * as THREE from "three";
 
-        // Update status immediately upon script load
-        document.getElementById("status").innerText = "Script Loaded. Waiting for Engine...";
+        const statusEl = document.getElementById("status");
+        statusEl.innerText = "Modules Loaded. Starting Engine...";
 
         onStart((context) => {
             console.log("Needle Engine Started!");
-            document.getElementById("status").innerText = "Engine Running!";
-            document.getElementById("status").style.color = "#00ff00";
+            statusEl.innerText = "Ready (Look at Board)";
+            statusEl.style.color = "#00ff00";
 
             // --- TILT FIVE SETUP ---
             // Add WebXR capability (Required for T5)
-            // Use GameObject.addNew to safely add components to the scene root
             const xrObject = GameObject.addNew(context.scene, "WebXR_Manager");
             GameObject.addComponent(xrObject, WebXR);
 
