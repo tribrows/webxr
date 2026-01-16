@@ -3,119 +3,134 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tilt Five - CDN Fixed</title>
+    <title>Tilt Five - Needle Fixed</title>
     
-    <!-- 1. IMPORT MAP: Maps 'three' and 'needle' to stable JSDelivr URLs -->
+    <!-- 1. IMPORT MAP: Using JSPM for reliable dependency resolution -->
     <script type="importmap">
     {
         "imports": {
-            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-            "three/": "https://cdn.jsdelivr.net/npm/three@0.160.0/",
-            "@needle-tools/engine": "https://cdn.jsdelivr.net/npm/@needle-tools/engine@3.37.0/dist/index.js"
+            "three": "https://ga.jspm.io/npm:three@0.160.0/build/three.module.js",
+            "@needle-tools/engine": "https://ga.jspm.io/npm:@needle-tools/engine@3.37.0/dist/index.js",
+            "rapier3d-compat": "https://ga.jspm.io/npm:rapier3d-compat@0.11.2/rapier.es.js"
+        },
+        "scopes": {
+            "https://ga.jspm.io/": {
+                "three": "https://ga.jspm.io/npm:three@0.160.0/build/three.module.js"
+            }
         }
     }
     </script>
 
-    <!-- 2. STYLES -->
     <style>
         html, body { 
             margin: 0; padding: 0; width: 100%; height: 100%; 
             background: #111; color: white; font-family: sans-serif; overflow: hidden; 
         }
         needle-engine { 
-            display: block; width: 100vw; height: 100vh; 
+            display: block; width: 100%; height: 100%; 
         }
         #overlay { 
             position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: none; 
             background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px;
-        }
-        .error-box {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(50,0,0,0.9); z-index: 9999; padding: 50px;
-            display: none; box-sizing: border-box;
+            backdrop-filter: blur(5px);
         }
     </style>
 </head>
 <body>
 
-    <!-- Error Display -->
-    <div id="error-box" class="error-box">
-        <h1>⚠️ Setup Error</h1>
-        <p id="error-msg"></p>
-        <p><strong>Note:</strong> You cannot run this by double-clicking the file. You must use a local server (e.g., VS Code Live Server, python -m http.server, or GitHub Pages).</p>
-    </div>
-
     <div id="overlay">
         <h2>Tilt Five AR</h2>
-        <p>Status: <span id="status" style="color:yellow">Loading Engine...</span></p>
+        <p>Status: <span id="status" style="color:yellow">Initializing...</span></p>
+        <small>Note: Requires Localhost (port 3000/5000/8080)</small>
     </div>
 
-    <!-- 3. LOAD ENGINE -->
-    <!-- We load the engine module here. The import map handles the URL. -->
-    <script type="module" src="https://cdn.jsdelivr.net/npm/@needle-tools/engine@3.37.0/dist/index.js"></script>
+    <!-- 
+      2. ENGINE COMPONENT 
+      CRITICAL FIX: Added 'src' with a base64 empty GLTF. 
+      This forces the engine to finish "loading" immediately.
+    -->
+    <needle-engine 
+        src="data:model/gltf+json;base64,eyJhc3NldCI6eyJ2ZXJzaW9uIjoiMi4wIn0sInNjZW5lcyI6W3sibm9kZXMiOltdfV0sInNjZW5lIjowfQ==">
+    </needle-engine>
 
-    <!-- 4. ENGINE COMPONENT -->
-    <needle-engine></needle-engine>
-
-    <!-- 5. MAIN LOGIC -->
+    <!-- 3. MAIN LOGIC -->
     <script type="module">
         import { onStart, WebXR, GameObject } from "@needle-tools/engine";
         import * as THREE from "three";
 
-        // Check for file:// protocol error
-        if (window.location.protocol === 'file:') {
-            const errBox = document.getElementById('error-box');
-            document.getElementById('error-msg').innerText = "You are running this file via 'file://' protocol. Browsers block WebXR and modules in this mode.";
-            errBox.style.display = 'block';
-            throw new Error("Local file access blocked");
-        }
-
         const statusEl = document.getElementById("status");
-        
+
+        // Hook into the engine start lifecycle
         onStart((context) => {
-            console.log("Needle Engine Started!");
-            statusEl.innerText = "Running (Ready for T5)";
-            statusEl.style.color = "#00ff00";
+            console.log("✅ Needle Engine Started!");
+            statusEl.innerText = "Running - Ready for Glasses";
+            statusEl.style.color = "#44ff88";
 
-            // --- TILT FIVE SETUP ---
-            // This component handles the connection to the T5 Drivers
+            // --- A. TILT FIVE / WEBXR SETUP ---
+            // We search for or create the WebXR manager
             const xrObject = GameObject.addNew(context.scene, "WebXR_Manager");
-            GameObject.addComponent(xrObject, WebXR);
+            const xrComponent = GameObject.addComponent(xrObject, WebXR);
+            
+            // Optional: Request a specific session mode if needed, but 'immersive-ar' is default
+            // xrComponent.startSession(); // Usually triggered by UI button, but we let Needle UI handle it
 
-            // --- DESKTOP PREVIEW ---
+            // --- B. DESKTOP CAMERA (Fallback) ---
             if (!context.mainCamera) {
                 const cam = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-                cam.position.set(0, 1, 1.5);
+                cam.position.set(0, 1.2, 1.5);
                 cam.lookAt(0, 0, 0);
                 context.scene.add(cam);
                 context.mainCamera = cam;
             }
 
-            // --- SCENE CONTENT ---
+            // --- C. SCENE CONTENT ---
             const root = new THREE.Group();
             context.scene.add(root);
 
-            // 1. Grid
-            context.scene.add(new THREE.GridHelper(2, 10));
+            // 1. Grid (To visualize the 'Board')
+            const grid = new THREE.GridHelper(2, 10, 0x888888, 0x333333);
+            root.add(grid);
 
             // 2. Objects
-            const geometry = new THREE.TorusKnotGeometry(0.15, 0.05, 100, 16);
-            const material = new THREE.MeshStandardMaterial({ color: 0x00ff88, metalness: 0.5, roughness: 0.1 });
-            const torus = new THREE.Mesh(geometry, material);
-            torus.position.y = 0.2;
-            root.add(torus);
+            // Main rotating shape
+            const geometry = new THREE.OctahedronGeometry(0.2, 0);
+            const material = new THREE.MeshStandardMaterial({ 
+                color: 0x00aaff, 
+                roughness: 0.1, 
+                metalness: 0.5,
+                wireframe: false
+            });
+            const shape = new THREE.Mesh(geometry, material);
+            shape.position.y = 0.3;
+            root.add(shape);
 
-            // 3. Light
+            // Orbiting spheres
+            const orbiterGeo = new THREE.SphereGeometry(0.05, 16, 16);
+            const orbiterMat = new THREE.MeshStandardMaterial({ color: 0xff3366 });
+            const orbiter = new THREE.Mesh(orbiterGeo, orbiterMat);
+            root.add(orbiter);
+
+            // 3. Lighting
             const light = new THREE.DirectionalLight(0xffffff, 2);
-            light.position.set(1, 2, 1);
+            light.position.set(1, 4, 2);
             context.scene.add(light);
             context.scene.add(new THREE.AmbientLight(0x404040));
 
-            // 4. Animation
+            // 4. Animation Loop
             const animate = () => {
                 if(context.isDestroyed) return;
-                torus.rotation.x += 0.01;
-                torus.rotation.y += 0.01;
+                
+                const time = performance.now() * 0.001;
+                
+                // Spin main shape
+                shape.rotation.y = time;
+                shape.rotation.z = time * 0.5;
+                
+                // Move orbiter
+                orbiter.position.x = Math.sin(time * 2) * 0.5;
+                orbiter.position.z = Math.cos(time * 2) * 0.5;
+                orbiter.position.y = 0.3 + Math.sin(time * 4) * 0.1;
+
                 requestAnimationFrame(animate);
             };
             animate();
