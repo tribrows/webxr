@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tilt Five - Debug Version</title>
+    
+    <!-- 1. ERROR HANDLER: Catches script errors and shows them on screen -->
+    <script>
+        window.onerror = function(msg, url, line, col, error) {
+            const div = document.createElement('div');
+            div.style.cssText = 'position:fixed; top:0; left:0; width:100%; background:rgba(200,0,0,0.9); color:white; padding:20px; z-index:9999; font-family:monospace;';
+            div.innerHTML = `<h3>Error Detected</h3><p>${msg}</p><p>Line: ${line}</p>`;
+            document.body.appendChild(div);
+            return false;
+        };
+        // Capture unhandled promise rejections (import failures)
+        window.addEventListener('unhandledrejection', function(event) {
+            const div = document.createElement('div');
+            div.style.cssText = 'position:fixed; bottom:0; left:0; width:100%; background:rgba(200,100,0,0.9); color:white; padding:20px; z-index:9999; font-family:monospace;';
+            div.innerHTML = `<h3>Promise Rejection</h3><p>${event.reason}</p>`;
+            document.body.appendChild(div);
+        });
+    </script>
+
+    <!-- 2. ROBUST IMPORT MAP (Using esm.sh for auto-dependency resolution) -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://esm.sh/three@0.160.0",
+            "@needle-tools/engine": "https://esm.sh/@needle-tools/engine@3.37.0"
+        }
+    }
+    </script>
+
+    <!-- Load the Engine definition -->
+    <script type="module" src="https://esm.sh/@needle-tools/engine@3.37.0"></script>
+
+    <style>
+        html, body { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            background: #222; color: white; font-family: sans-serif; overflow: hidden; 
+        }
+        needle-engine { 
+            display: block; width: 100%; height: 100%; 
+        }
+        #overlay { 
+            position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: none; 
+            text-shadow: 0 1px 2px black;
+        }
+        #status { font-weight: bold; color: #ffff00; }
+    </style>
+</head>
+<body>
+
+    <div id="overlay">
+        <h1>Tilt Five AR</h1>
+        <p>Status: <span id="status">Loading Modules...</span></p>
+        <p style="font-size: 0.8em; opacity: 0.8">If stuck here, check console (F12)</p>
+    </div>
+
+    <!-- 3. ENGINE COMPONENT with explicit attributes -->
+    <needle-engine></needle-engine>
+
+    <script type="module">
+        // Import essential components
+        import { onStart, WebXR, GameObject, Context } from "@needle-tools/engine";
+        import * as THREE from "three";
+
+        // Update status immediately upon script load
+        document.getElementById("status").innerText = "Script Loaded. Waiting for Engine...";
+
+        onStart((context) => {
+            console.log("Needle Engine Started!");
+            document.getElementById("status").innerText = "Engine Running!";
+            document.getElementById("status").style.color = "#00ff00";
+
+            // --- TILT FIVE SETUP ---
+            // Add WebXR capability (Required for T5)
+            // Use GameObject.addNew to safely add components to the scene root
+            const xrObject = GameObject.addNew(context.scene, "WebXR_Manager");
+            GameObject.addComponent(xrObject, WebXR);
+
+            // --- DESKTOP CAMERA (Fallback) ---
+            if (!context.mainCamera) {
+                const camObj = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+                camObj.position.set(0, 1.5, 2);
+                camObj.lookAt(0, 0, 0);
+                context.scene.add(camObj);
+                context.mainCamera = camObj;
+            }
+
+            // --- SCENE CONTENT ---
+            const root = new THREE.Group();
+            context.scene.add(root);
+
+            // 1. Grid (Visual Reference)
+            const grid = new THREE.GridHelper(1, 10);
+            context.scene.add(grid);
+
+            // 2. Spinning Cube
+            const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+            const material = new THREE.MeshStandardMaterial({ color: 0x00aaff });
+            const cube = new THREE.Mesh(geometry, material);
+            cube.position.set(0, 0.1, 0);
+            root.add(cube);
+
+            // 3. Particles
+            const pCount = 300;
+            const pGeo = new THREE.BufferGeometry();
+            const pPos = new Float32Array(pCount * 3);
+            for(let i=0; i<pCount*3; i++) pPos[i] = (Math.random() - 0.5) * 1.5;
+            pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+            const pMat = new THREE.PointsMaterial({ color: 0xffaa00, size: 0.015 });
+            const particles = new THREE.Points(pGeo, pMat);
+            root.add(particles);
+
+            // 4. Lights
+            const light = new THREE.DirectionalLight(0xffffff, 2);
+            light.position.set(2, 4, 2);
+            context.scene.add(light);
+            context.scene.add(new THREE.AmbientLight(0x333333));
+
+            // Animation Loop
+            const animate = () => {
+                if(context.isDestroyed) return;
+                
+                const time = performance.now() * 0.001;
+                cube.rotation.x = time;
+                cube.rotation.y = time * 0.5;
+                
+                // Bobbing effect
+                cube.position.y = 0.2 + Math.sin(time * 2) * 0.05;
+                
+                requestAnimationFrame(animate);
+            };
+            animate();
+        });
+    </script>
+</body>
+</html>
