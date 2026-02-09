@@ -1,75 +1,42 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Three.js Modular Template</title>
-    <style>
-        body { margin: 0; overflow: hidden; background-color: #000; }
-        #canvas-container { width: 100vw; height: 100vh; }
-    </style>
-    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
-</head>
-<body>
-    <div id="canvas-container"></div>
+<script type="module">
+    import * as THREE from 'three';
+    import { createSky, createCloudMaterial, setupGUI } from './SceneComponents.js';
 
-    <script type="module">
-        import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
-        // Import our templates
-        import { createSky, createCloudMaterial, generateClouds } from './SceneComponents.js';
+    const config = {
+        skyTop: '#5e8bff',
+        skyBottom: '#ff98a6',
+        cloudHighlight: '#ffffff',
+        cloudMidtone: '#c5d1e8',
+        cloudShadow: '#7a869e',
+        ambientIntensity: 0.6
+    };
 
-        const config = {
-            skyTop: '#5e8bff',
-            skyBottom: '#ff98a6',
-            cloudHighlight: '#ffffff',
-            cloudMidtone: '#c5d1e8',
-            cloudShadow: '#7a869e'
-        };
+    // Standard Setup
+    const scene = new THREE.Scene();
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+    camera.position.set(0, 30, 100);
 
-        // Standard Scene Setup
-        const scene = new THREE.Scene();
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.getElementById('canvas-container').appendChild(renderer.domElement);
-        
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
-        camera.position.set(0, 30, 100);
+    // Add Lights
+    const ambientLight = new THREE.AmbientLight(0xffffff, config.ambientIntensity);
+    const lightTop = new THREE.DirectionalLight(config.skyTop, 2);
+    lightTop.position.set(50, 200, 50);
+    scene.add(ambientLight, lightTop);
 
-        // Lights
-        const lightTop = new THREE.DirectionalLight(config.skyTop, 2);
-        lightTop.position.set(50, 200, 50);
-        scene.add(lightTop);
+    // Initialize Templates
+    const sky = createSky(config);
+    const cloudMat = createCloudMaterial(config, lightTop.position);
+    scene.add(sky);
 
-        // --- INJECT TEMPLATES ---
-        const sky = createSky(config);
-        scene.add(sky);
+    // Initialize GUI from Shared Component
+    // Pass the objects that the GUI needs to control
+    setupGUI(config, { sky, cloudMat, lightTop, ambientLight });
 
-        const cloudMat = createCloudMaterial(config, lightTop.position);
-        let clouds = generateClouds(40, cloudMat);
-        scene.add(clouds);
-
-        // GUI for dynamic updates
-        const gui = new GUI();
-        gui.addColor(config, 'skyTop').onChange(v => {
-            sky.material.uniforms.topColor.value.set(v);
-            lightTop.color.set(v);
-        });
-        gui.addColor(config, 'cloudHighlight').onChange(v => cloudMat.uniforms.uColorHighlight.value.set(v));
-
-        function animate() {
-            requestAnimationFrame(animate);
-            renderer.render(scene, camera);
-        }
-        animate();
-    </script>
-</body>
-</html>
+    function animate() {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+    }
+    animate();
+</script>
