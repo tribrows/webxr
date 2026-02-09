@@ -1,0 +1,5 @@
+
+{
+  "name": "Three.js Sky & Cloud Shader Scene",
+  "description": "An interactive Three.js scene featuring a dynamic sky with a two-color gradient and a procedural three-color cloud layer. Users can customize the colors of the sky and clouds and toggle scene lights in real-time through a simple UI."
+}
