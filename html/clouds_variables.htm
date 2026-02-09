@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js Sky & Cloud Palette</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; pointer-events: none; transition: opacity 0.5s;
+        }
+    </style>
+    <!-- Import Maps Polyfill -->
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+    
+    <!-- Three.js Import Map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="loading">Loading Scene...</div>
+    <div id="canvas-container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+        import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+        // --- Configuration ---
+        const config = {
+            skyTop: '#5e8bff',
+            skyBottom: '#ff98a6',
+            cloudHighlight: '#ffffff', // Color 1
+            cloudMidtone: '#c5d1e8',   // Color 2
+            cloudShadow: '#7a869e',    // Color 3
+            terrainColor: '#2a2a35',
+            ambientIntensity: 0.6,
+            lightTopOn: true,
+            lightBottomOn: true,
+            rotate: false // Changed default to false
+        };
+
+        // --- Scene Setup ---
+        const container = document.getElementById('canvas-container');
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        const scene = new THREE.Scene();
+        // Fog matches the bottom sky color to blend the terrain into distance
+        scene.fog = new THREE.Fog(config.skyBottom, 50, 600);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.set(0, 30, 100);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.autoRotate = config.rotate;
+        controls.autoRotateSpeed = 0.2;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05; // Prevent going under the terrain
+
+        // --- 1. Sky Gradient (Shader) ---
+        const vertexShaderSky = `
+            varying vec3 vWorldPosition;
+            void main() {
+                vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
+                vWorldPosition = worldPosition.xyz;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+            }
+        `;
+
+        const fragmentShaderSky = `
+            uniform vec3 topColor;
+            uniform vec3 bottomColor;
+            uniform float offset;
+            uniform float exponent;
+            varying vec3 vWorldPosition;
+            void main() {
+                float h = normalize( vWorldPosition + offset ).y;
+                gl_FragColor = vec4( mix( bottomColor, topColor, max( h, 0.0 ) ), 1.0 );
+            }
+        `;
+
+        const skyGeo = new THREE.SphereGeometry(1000, 32, 15);
+        const skyMat = new THREE.ShaderMaterial({
+            vertexShader: vertexShaderSky,
+            fragmentShader: fragmentShaderSky,
+            uniforms: {
+                topColor: { value: new THREE.Color(config.skyTop) },
+                bottomColor: { value: new THREE.Color(config.skyBottom) },
+                offset: { value: 33 },
+                exponent: { value: 0.6 }
+            },
+            side: THREE.BackSide
+        });
+
+        const sky = new THREE.Mesh(skyGeo, skyMat);
+        scene.add(sky);
+
+        // --- 2. Lights ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, config.ambientIntensity);
+        scene.add(ambientLight);
+
+        const lightTop = new THREE.DirectionalLight(config.skyTop, 2.0);
+        lightTop.position.set(50, 200, 50); 
+        lightTop.castShadow = true;
+        lightTop.shadow.mapSize.width = 1024;
+        lightTop.shadow.mapSize.height = 1024;
+        scene.add(lightTop);
+
+        const lightBottom = new THREE.DirectionalLight(config.skyBottom, 1.0);
+        lightBottom.position.set(0, -200, 0);
+        scene.add(lightBottom);
+
+        // --- 3. Custom "Toon" Cloud Material ---
+        // This shader maps light intensity to 3 distinct colors (Highlight, Midtone, Shadow)
+        
+        const cloudVertexShader = `
+            varying vec3 vNormal;
+            varying vec3 vViewPosition;
+            
+            void main() {
+                vNormal = normalize(normalMatrix * normal);
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                vViewPosition = -mvPosition.xyz;
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `;
+
+        const cloudFragmentShader = `
+            uniform vec3 uColorHighlight;
+            uniform vec3 uColorMidtone;
+            uniform vec3 uColorShadow;
+            uniform vec3 uLightDir; // Direction of the main sun
+            
+            varying vec3 vNormal;
+            
+            void main() {
+                // Calculate basic light intensity based on normal and light direction
+                // We use a fixed light direction relative to view for consistency or world space
+                float intensity = dot(vNormal, normalize(uLightDir));
+                
+                vec3 finalColor;
+                
+                // Hard steps for "Cel Shaded" / 2D look
+                // You can adjust these thresholds (0.6 and 0.2) to change the balance
+                float smoothFactor = 0.02; // Slight smoothing to prevent jagged pixels
+
+                float step1 = smoothstep(0.5, 0.5 + smoothFactor, intensity);
+                float step2 = smoothstep(-0.2, -0.2 + smoothFactor, intensity);
+
+                // Mix colors based on steps
+                vec3 shadowMid = mix(uColorShadow, uColorMidtone, step2);
+                finalColor = mix(shadowMid, uColorHighlight, step1);
+
+                gl_FragColor = vec4(finalColor, 1.0);
+            }
+        `;
+
+        const cloudUniforms = {
+            uColorHighlight: { value: new THREE.Color(config.cloudHighlight) },
+            uColorMidtone: { value: new THREE.Color(config.cloudMidtone) },
+            uColorShadow: { value: new THREE.Color(config.cloudShadow) },
+            uLightDir: { value: lightTop.position.clone().normalize() } // Use lightTop position
+        };
+
+        const cloudMaterial = new THREE.ShaderMaterial({
+            vertexShader: cloudVertexShader,
+            fragmentShader: cloudFragmentShader,
+            uniforms: cloudUniforms,
+            // flatShading: false // Smooth shading is better for the toon gradient to work across blobs
+        });
+
+        // --- 4. Objects ---
+
+        // Central Primitive (Torus Knot) - Keep standard material to show environment reflection
+        const mainObjMat = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            roughness: 0.2,
+            metalness: 0.1,
+        });
+        const geometry = new THREE.TorusKnotGeometry(10, 3, 128, 32);
+        const torusKnot = new THREE.Mesh(geometry, mainObjMat);
+        torusKnot.position.y = 20;
+        torusKnot.castShadow = true;
+        scene.add(torusKnot);
+
+        // --- Cloud Generator ---
+        const cloudsGroup = new THREE.Group();
+        scene.add(cloudsGroup);
+
+        function createCloudMesh() {
+            // Updated for "wispy" look:
+            // More spheres, smaller sizes, wider spread
+            const blobsCount = 10 + Math.floor(Math.random() * 15); // More blobs (10-25)
+            const geometries = [];
+
+            // Elongate cloud randomly along X or Z axis
+            const stretchX = 1 + Math.random() * 2;
+            const stretchZ = 1 + Math.random() * 1.5;
+
+            for(let i=0; i<blobsCount; i++) {
+                // Varied radius: some small puffs, some medium
+                const r = 2 + Math.random() * 6; 
+                
+                // Increase resolution slightly for smoothness
+                const geo = new THREE.SphereGeometry(r, 12, 12);
+                
+                // Spread them out more to look irregular/wispy
+                geo.translate(
+                    (Math.random() - 0.5) * 35 * stretchX, // Wider spread
+                    (Math.random() - 0.5) * 6,             // Very flat Y
+                    (Math.random() - 0.5) * 20 * stretchZ
+                );
+                
+                geometries.push(geo);
+            }
+
+            const mergedGeo = mergeGeometries(geometries);
+            const mesh = new THREE.Mesh(mergedGeo, cloudMaterial);
+            return mesh;
+        }
+
+        function generateClouds(count) {
+            // Clear existing
+            while(cloudsGroup.children.length > 0){ 
+                const child = cloudsGroup.children[0];
+                if(child.geometry) child.geometry.dispose();
+                cloudsGroup.remove(child); 
+            }
+
+            for(let i=0; i<count; i++) {
+                const cloud = createCloudMesh();
+                
+                // Position in a ring/dome layout
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 80 + Math.random() * 150;
+                const height = 30 + Math.random() * 80;
+
+                cloud.position.set(
+                    Math.cos(angle) * radius,
+                    height,
+                    Math.sin(angle) * radius
+                );
+
+                // Random scale variation
+                const scale = 0.8 + Math.random() * 0.8;
+                cloud.scale.set(scale, scale * 0.6, scale); // Flatten entire cloud mesh
+                
+                cloud.lookAt(0, cloud.position.y, 0);
+                cloudsGroup.add(cloud);
+            }
+        }
+
+        generateClouds(40);
+
+        // --- 5. Terrain / Horizon ---
+        // Create a large plane and displace vertices to make hills
+        const terrainGeo = new THREE.PlaneGeometry(800, 800, 64, 64);
+        terrainGeo.rotateX(-Math.PI / 2); // Flat on ground
+
+        const posAttribute = terrainGeo.attributes.position;
+        const vertex = new THREE.Vector3();
+
+        for (let i = 0; i < posAttribute.count; i++) {
+            vertex.fromBufferAttribute(posAttribute, i);
+            
+            // Simple noise function using sine waves
+            const x = vertex.x * 0.02;
+            const z = vertex.z * 0.02;
+            const height = (Math.sin(x) + Math.cos(z)) * 5 
+                         + (Math.sin(x * 3) + Math.cos(z * 3)) * 2;
+            
+            // Make edges drop off or rise up
+            const dist = Math.sqrt(vertex.x*vertex.x + vertex.z*vertex.z);
+            const bowlEffect = Math.max(0, (dist - 100) * 0.1); // Rise at edges
+
+            vertex.y = height - 30; // Shift down below torus
+            posAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
+        }
+
+        terrainGeo.computeVertexNormals();
+
+        const terrainMat = new THREE.MeshStandardMaterial({
+            color: config.terrainColor,
+            roughness: 0.9,
+            metalness: 0.1,
+            flatShading: true 
+        });
+
+        const terrain = new THREE.Mesh(terrainGeo, terrainMat);
+        terrain.receiveShadow = true;
+        scene.add(terrain);
+
+
+        // --- 6. GUI Control Panel ---
+        const gui = new GUI({ title: 'Sky & Cloud Controls' });
+
+        // Folder: Sky Gradient
+        const skyFolder = gui.addFolder('Sky & Light');
+        skyFolder.addColor(config, 'skyTop').name('Sky Top').onChange(v => {
+            skyMat.uniforms.topColor.value.set(v);
+            lightTop.color.set(v);
+        });
+        skyFolder.addColor(config, 'skyBottom').name('Sky Bottom').onChange(v => {
+            skyMat.uniforms.bottomColor.value.set(v);
+            scene.fog.color.set(v);
+            lightBottom.color.set(v);
+        });
+        skyFolder.add(config, 'ambientIntensity', 0, 2).name('Ambient Light').onChange(v => ambientLight.intensity = v);
+
+        // Folder: Cloud Palette (Shader Uniforms)
+        const cloudFolder = gui.addFolder('Cloud Palette (2D Style)');
+        cloudFolder.addColor(config, 'cloudHighlight').name('Highlight').onChange(v => cloudUniforms.uColorHighlight.value.set(v));
+        cloudFolder.addColor(config, 'cloudMidtone').name('Midtone').onChange(v => cloudUniforms.uColorMidtone.value.set(v));
+        cloudFolder.addColor(config, 'cloudShadow').name('Shadow').onChange(v => cloudUniforms.uColorShadow.value.set(v));
+        cloudFolder.add({ regenerate: () => generateClouds(40) }, 'regenerate').name('Regenerate Clouds');
+
+        // Folder: Terrain
+        const terrainFolder = gui.addFolder('Terrain');
+        terrainFolder.addColor(config, 'terrainColor').onChange(v => terrainMat.color.set(v));
+
+        
+        const mainFolder = gui.addFolder('Settings');
+        mainFolder.add(config, 'rotate').name('Auto Rotate').onChange(v => controls.autoRotate = v);
+
+
+        // --- Animation Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = Date.now() * 0.001;
+            
+            // Floating Torus
+            torusKnot.rotation.x = Math.sin(time * 0.5) * 0.1;
+            torusKnot.rotation.y = time * 0.2;
+            torusKnot.position.y = 20 + Math.sin(time) * 3;
+
+            // Rotate cloud layer slowly (Disabled per user request, but kept subtle code if needed in future)
+            if(config.rotate) {
+                cloudsGroup.rotation.y += 0.0005;
+            }
+
+            // Ensure light direction uniform stays updated if we were to move the light
+            // cloudUniforms.uLightDir.value.copy(lightTop.position).normalize();
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        document.getElementById('loading').style.opacity = 0;
+        
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
