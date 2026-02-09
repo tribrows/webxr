@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // --- SKY TEMPLATE ---
@@ -12,6 +11,7 @@ export function createSky(config) {
             gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
         }
     `;
+
     const fragmentShader = `
         uniform vec3 topColor;
         uniform vec3 bottomColor;
@@ -25,7 +25,8 @@ export function createSky(config) {
 
     const skyGeo = new THREE.SphereGeometry(1000, 32, 15);
     const skyMat = new THREE.ShaderMaterial({
-        vertexShader, fragmentShader,
+        vertexShader,
+        fragmentShader,
         uniforms: {
             topColor: { value: new THREE.Color(config.skyTop) },
             bottomColor: { value: new THREE.Color(config.skyBottom) },
@@ -33,10 +34,11 @@ export function createSky(config) {
         },
         side: THREE.BackSide
     });
+
     return new THREE.Mesh(skyGeo, skyMat);
 }
 
-// --- CLOUD MATERIAL & GENERATOR ---
+// --- CLOUD TEMPLATE ---
 export function createCloudMaterial(config, lightDir) {
     const vertexShader = `
         varying vec3 vNormal;
@@ -45,6 +47,7 @@ export function createCloudMaterial(config, lightDir) {
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
     `;
+
     const fragmentShader = `
         uniform vec3 uColorHighlight;
         uniform vec3 uColorMidtone;
@@ -61,7 +64,8 @@ export function createCloudMaterial(config, lightDir) {
     `;
 
     return new THREE.ShaderMaterial({
-        vertexShader, fragmentShader,
+        vertexShader,
+        fragmentShader,
         uniforms: {
             uColorHighlight: { value: new THREE.Color(config.cloudHighlight) },
             uColorMidtone: { value: new THREE.Color(config.cloudMidtone) },
@@ -71,41 +75,26 @@ export function createCloudMaterial(config, lightDir) {
     });
 }
 
-// --- UNIVERSAL GUI COMPONENT ---
-export function setupGUI(config, sceneObjects) {
-    let gui;
-    
-    window.addEventListener('keydown', (e) => {
-        if (e.key.toLowerCase() === 'g') {
-            if (!gui) {
-                gui = new GUI({ title: 'Palette Controls (G to Toggle)' });
-                
-                const { sky, cloudMat, lightTop, ambientLight } = sceneObjects;
+export function generateClouds(count, material) {
+    const group = new THREE.Group();
+    for(let i = 0; i < count; i++) {
+        const blobsCount = 10 + Math.floor(Math.random() * 15);
+        const geometries = [];
+        const stretchX = 1 + Math.random() * 2;
 
-                // Sky Folder
-                const skyFolder = gui.addFolder('Sky & Sun');
-                skyFolder.addColor(config, 'skyTop').onChange(v => {
-                    sky.material.uniforms.topColor.value.set(v);
-                    if(lightTop) lightTop.color.set(v);
-                });
-                skyFolder.addColor(config, 'skyBottom').onChange(v => {
-                    sky.material.uniforms.bottomColor.value.set(v);
-                });
-                if(ambientLight) skyFolder.add(config, 'ambientIntensity', 0, 2).onChange(v => ambientLight.intensity = v);
-
-                // Clouds Folder
-                const cloudFolder = gui.addFolder('Cloud Tones');
-                cloudFolder.addColor(config, 'cloudHighlight').onChange(v => cloudMat.uniforms.uColorHighlight.value.set(v));
-                cloudFolder.addColor(config, 'cloudMidtone').onChange(v => cloudMat.uniforms.uColorMidtone.value.set(v));
-                cloudFolder.addColor(config, 'cloudShadow').onChange(v => cloudMat.uniforms.uColorShadow.value.set(v));
-                
-                // Export Tool
-                gui.add({ export: () => console.log(JSON.stringify(config, null, 2)) }, 'export').name('Log Config to Console');
-
-            } else {
-                const isHidden = gui._domElement.style.display === 'none';
-                gui._domElement.style.display = isHidden ? 'block' : 'none';
-            }
+        for(let j = 0; j < blobsCount; j++) {
+            const r = 2 + Math.random() * 6;
+            const geo = new THREE.SphereGeometry(r, 12, 12);
+            geo.translate((Math.random() - 0.5) * 35 * stretchX, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 20);
+            geometries.push(geo);
         }
-    });
+
+        const mesh = new THREE.Mesh(mergeGeometries(geometries), material);
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 80 + Math.random() * 150;
+        mesh.position.set(Math.cos(angle) * radius, 30 + Math.random() * 80, Math.sin(angle) * radius);
+        mesh.scale.set(1, 0.6, 1);
+        group.add(mesh);
+    }
+    return group;
 }
